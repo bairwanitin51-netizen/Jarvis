@@ -1,0 +1,8 @@
+{
+  "name": "J.A.R.V.I.S. Interface",
+  "description": "A sophisticated, proactive diverse-system interface simulating J.A.R.V.I.S., with a chat-based interaction model powered by the Gemini API.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
