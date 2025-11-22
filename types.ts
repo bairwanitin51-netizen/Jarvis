@@ -25,13 +25,44 @@ export interface Source {
   title: string;
 }
 
+export interface RenderModel {
+  viewport: string;
+  angle: string;
+  style: string;
+}
+
+export interface Simulation {
+  variable: string;
+  duration: string;
+  niche: string;
+}
+
+export interface Widget {
+  title: string;
+  type: string;
+  color: string;
+}
+
+export interface FileOperation {
+  filename: string;
+  status: 'CREATING' | 'UPLOADED';
+}
+
 export interface Message {
   id: string;
   sender: MessageSender;
   text: string;
+  imageUrl?: string;
+  videoUrl?: string;
   action?: SystemAction;
   systemInfo?: SystemInfo;
   sources?: Source[];
+  renderModel?: RenderModel;
+  simulation?: Simulation;
+  widget?: Widget;
+  fileOperation?: FileOperation;
+  mode?: string;
+  visualContext?: string;
 }
 
 export enum Protocol {

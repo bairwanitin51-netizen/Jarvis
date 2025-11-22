@@ -1,12 +1,13 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { SendIcon } from './icons/SendIcon';
 import { MicIcon } from './icons/MicIcon';
+import { PaperClipIcon } from './icons/PaperClipIcon';
 import { Protocol } from '../types';
 import type { VoiceStatus } from '../services/jarvisService';
 
 interface InputBarProps {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, attachment?: { data: string; mimeType: string }) => void;
   isLoading: boolean;
   protocol: Protocol;
   voiceStatus: VoiceStatus;
@@ -14,40 +15,6 @@ interface InputBarProps {
   userTranscript: string;
   jarvisTranscript: string;
 }
-
-const HolographicVoiceDisplay: React.FC<{ status: VoiceStatus; transcript: string }> = ({ status, transcript }) => {
-  const bars = Array.from({ length: 30 });
-  const isSpeaking = status === 'SPEAKING';
-  const colorClass = isSpeaking ? 'bg-cyan-400' : 'bg-green-400';
-
-  let statusText = '';
-  if (status === 'CONNECTING') statusText = 'CONNECTING...';
-  if (status === 'LISTENING') statusText = 'LISTENING...';
-  if (status === 'SPEAKING') statusText = 'J.A.R.V.I.S. RESPONDING...';
-
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center pointer-events-none">
-      <div className="flex items-center justify-center space-x-0.5 h-full w-full max-w-md">
-        {bars.map((_, index) => (
-          <div
-            key={index}
-            className={`w-1 ${colorClass}`}
-            style={{
-              animation: `live-waveform ${0.5 + Math.random() * 0.5}s ease-in-out infinite`,
-              animationDelay: `${Math.random() * -0.5}s`,
-              transformOrigin: 'bottom',
-            }}
-          />
-        ))}
-      </div>
-       <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-        <p className="font-mono text-sm tracking-widest opacity-80" style={{ textShadow: `0 0 5px ${isSpeaking ? '#00ffff' : '#00ff00'}` }}>{statusText}</p>
-        <p className="w-full truncate px-4 text-xs opacity-70">{transcript}</p>
-      </div>
-    </div>
-  );
-};
-
 
 export const InputBar: React.FC<InputBarProps> = ({
   onSendMessage,
@@ -59,12 +26,40 @@ export const InputBar: React.FC<InputBarProps> = ({
   jarvisTranscript
 }) => {
   const [input, setInput] = useState('');
+  const [attachment, setAttachment] = useState<{ data: string; mimeType: string; previewUrl: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        // Remove data URL prefix for API usage
+        const base64Data = base64String.split(',')[1];
+        setAttachment({
+          data: base64Data,
+          mimeType: file.type,
+          previewUrl: base64String
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() && !isLoading) {
-      onSendMessage(input.trim());
+    if ((input.trim() || attachment) && !isLoading) {
+      const attachmentData = attachment ? { data: attachment.data, mimeType: attachment.mimeType } : undefined;
+      onSendMessage(input.trim(), attachmentData);
       setInput('');
+      setAttachment(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -89,29 +84,58 @@ export const InputBar: React.FC<InputBarProps> = ({
   const currentBorderStyle = protocolStyles[protocol].split(' ')[0];
   const currentTextColor = protocolStyles[protocol].split(' ')[1];
 
-  const transcript = voiceStatus === 'SPEAKING' ? jarvisTranscript : userTranscript;
-
   return (
-    <div className={`p-4 border-t ${currentBorderStyle} transition-all duration-300`}>
+    <div className={`p-4 border-t ${currentBorderStyle} transition-all duration-300 relative bg-black/20 backdrop-blur-sm`}>
+       {attachment && (
+        <div className="absolute bottom-full left-4 mb-2 p-2 bg-black/80 border border-cyan-500/30 rounded-md animate-fadeIn">
+            <div className="relative group">
+                <img src={attachment.previewUrl} alt="Attachment" className="h-20 w-auto rounded object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                <button 
+                    onClick={handleRemoveAttachment}
+                    className="absolute -top-2 -right-2 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                >
+                    ×
+                </button>
+            </div>
+        </div>
+      )}
+
       <div className="flex items-center space-x-4 relative">
         <div className={`absolute -left-px -top-px w-3 h-3 border-l-2 border-t-2 ${currentBorderStyle}`}></div>
         <div className={`absolute -right-px -top-px w-3 h-3 border-r-2 border-t-2 ${currentBorderStyle}`}></div>
         <div className={`absolute -left-px -bottom-px w-3 h-3 border-l-2 border-b-2 ${currentBorderStyle}`}></div>
         <div className={`absolute -right-px -bottom-px w-3 h-3 border-r-2 border-b-2 ${currentBorderStyle}`}></div>
         
+        <input 
+            type="file" 
+            ref={fileInputRef}
+            className="hidden"
+            accept="image/*"
+            onChange={handleFileSelect}
+        />
+        
+        <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || isVoiceActive}
+            className={`p-3 rounded-full transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${buttonStyles[protocol]}`}
+            title="Attach Image"
+        >
+            <PaperClipIcon className="w-6 h-6" />
+        </button>
+
         <div className="relative w-full h-[52px]">
            <form onSubmit={handleSubmit} className="w-full h-full">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Awaiting input, Sir..."
+              placeholder={attachment ? "Enter prompt to edit this image..." : "Awaiting input, Sir..."}
               disabled={isLoading || isVoiceActive}
-              className={`w-full h-full p-3 bg-transparent placeholder-gray-500 focus:outline-none transition-opacity duration-300 ${currentTextColor} ${isVoiceActive ? 'opacity-0' : 'opacity-100'}`}
+              className={`w-full h-full p-3 bg-transparent placeholder-gray-500 focus:outline-none transition-opacity duration-300 ${currentTextColor} ${isVoiceActive ? 'opacity-50 cursor-not-allowed' : 'opacity-100'}`}
               style={{ textShadow: '0 0 5px currentColor' }}
             />
           </form>
-          {isVoiceActive && <HolographicVoiceDisplay status={voiceStatus} transcript={transcript} />}
         </div>
         
         <button
@@ -120,7 +144,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           disabled={isLoading && !isVoiceActive}
           className={`p-3 rounded-full transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
             isVoiceActive 
-            ? 'bg-red-600/70 hover:bg-red-500/90 text-red-100 animate-pulse-glow' 
+            ? 'bg-red-600/70 hover:bg-red-500/90 text-red-100 animate-pulse-glow shadow-[0_0_15px_red]' 
             : buttonStyles[protocol]
           }`}
         >

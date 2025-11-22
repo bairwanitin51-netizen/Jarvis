@@ -1,18 +1,18 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { ChatWindow } from './components/ChatWindow';
-import { InputBar } from './components/InputBar';
-import { BootSequence } from './components/BootSequence';
-import { getJarvisResponse, startJarvisSession, LiveSessionManager } from './services/jarvisService';
-import type { LiveSessionCallbacks, VoiceStatus } from './services/jarvisService';
-import { Message, MessageSender, Protocol } from './types';
-import { PROTOCOL_TRIGGERS } from './constants';
-import { SystemStatusPanel } from './components/telemetry/SystemStatusPanel';
-import { ResourceMetersPanel } from './components/telemetry/ResourceMetersPanel';
-import { StockTickerPanel } from './components/telemetry/StockTickerPanel';
-import { WorldClockPanel } from './components/telemetry/WorldClockPanel';
-import { HolographicDisplayPanel } from './components/telemetry/HolographicDisplayPanel';
-import { DebugPanel } from './components/telemetry/DebugPanel';
+import { ChatWindow } from './ChatWindow';
+import { InputBar } from './InputBar';
+import { BootSequence } from './BootSequence';
+import { getJarvisResponse, startJarvisSession, LiveSessionManager } from '../services/jarvisService';
+import type { LiveSessionCallbacks, VoiceStatus } from '../services/jarvisService';
+import { Message, MessageSender, Protocol } from '../types';
+import { PROTOCOL_TRIGGERS } from '../constants';
+import { SystemStatusPanel } from './telemetry/SystemStatusPanel';
+import { ResourceMetersPanel } from './telemetry/ResourceMetersPanel';
+import { StockTickerPanel } from './telemetry/StockTickerPanel';
+import { WorldClockPanel } from './telemetry/WorldClockPanel';
+import { DebugPanel } from './telemetry/DebugPanel';
+import { HolographicCore } from './HolographicCore';
 
 const App: React.FC = () => {
   const [isBooting, setIsBooting] = useState(true);
@@ -57,11 +57,13 @@ const App: React.FC = () => {
     }, 200);
   }, []);
   
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, attachment?: { data: string; mimeType: string }) => {
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: MessageSender.USER,
       text: text,
+      // If we have an attachment, assume it's an image for display purposes in chat
+      imageUrl: attachment ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined,
     };
     setMessages(prev => [...prev, userMessage]);
     
@@ -77,16 +79,18 @@ const App: React.FC = () => {
     // Pass God Mode context if enabled
     const prompt = godMode ? `[SYSTEM_OVERRIDE: GOD_MODE_ACTIVE] ${text}` : text;
     
-    const jarvisResponse = await getJarvisResponse(prompt);
+    const jarvisResponse = await getJarvisResponse(prompt, attachment);
     setIsLoading(false);
 
     const newJarvisMessage: Message = {
       id: (Date.now() + 1).toString(),
       sender: MessageSender.JARVIS,
       text: jarvisResponse.text,
+      imageUrl: jarvisResponse.imageUrl, // Display generated/processed image
       action: jarvisResponse.action ?? undefined,
       systemInfo: jarvisResponse.systemInfo ?? undefined,
       sources: jarvisResponse.sources ?? undefined,
+      videoUrl: jarvisResponse.videoUrl, // Pass video URL
     };
     setMessages(prev => [...prev, newJarvisMessage]);
   };
@@ -120,28 +124,40 @@ const App: React.FC = () => {
     }, 1000);
   };
 
-  const handleToggleVoice = useCallback(() => {
-    // If LiveSessionManager instance doesn't exist, create it.
-    if (!liveSessionManagerRef.current) {
-        const callbacks: LiveSessionCallbacks = {
-            onStatusChange: setVoiceStatus,
-            onUserTranscript: setUserTranscript,
-            onJarvisTranscript: setJarvisTranscript,
-            onNewMessage: (newMessage) => setMessages(prev => [...prev, newMessage]),
-            onError: (error) => {
-                const errorMessage: Message = { id: Date.now().toString(), sender: MessageSender.JARVIS, text: '', systemInfo: { systemFailure: `VOICE ERROR: ${error}` } };
-                setMessages(prev => [...prev, errorMessage]);
-            },
-        };
-        liveSessionManagerRef.current = new LiveSessionManager(callbacks);
-    }
+  const handleJarvisLiveError = useCallback((error: string) => {
+    const errorMessage: Message = { 
+        id: Date.now().toString(), 
+        sender: MessageSender.JARVIS, 
+        text: '', 
+        systemInfo: { systemFailure: `VOICE ERROR: ${error}` } 
+    };
+    setMessages(prev => [...prev, errorMessage]);
+    // Also stop the voice session if an error occurs to prevent continuous error states
+    liveSessionManagerRef.current?.stop();
+  }, []);
 
-    if (voiceStatus === 'OFF' || voiceStatus === 'ERROR' || voiceStatus === 'IDLE') {
+  const handleToggleVoice = useCallback(() => {
+    // If voice is currently OFF, IDLE, or in ERROR, try to start it.
+    if (voiceStatus === 'OFF' || voiceStatus === 'IDLE' || voiceStatus === 'ERROR') {
+      // If no manager exists, or if it was previously stopped due to an error, create a new one.
+      // This ensures we always get a fresh session and can re-attempt API key selection if needed.
+      if (!liveSessionManagerRef.current || voiceStatus === 'ERROR') {
+          liveSessionManagerRef.current = null; // Clear old reference to ensure new instance
+          const callbacks: LiveSessionCallbacks = {
+              onStatusChange: setVoiceStatus,
+              onUserTranscript: setUserTranscript,
+              onJarvisTranscript: setJarvisTranscript,
+              onNewMessage: (newMessage) => setMessages(prev => [...prev, newMessage]),
+              onError: handleJarvisLiveError, // Use the new error handler
+          };
+          liveSessionManagerRef.current = new LiveSessionManager(callbacks);
+      }
       liveSessionManagerRef.current?.start();
     } else {
+      // If voice is active (CONNECTING, LISTENING, SPEAKING), stop it.
       liveSessionManagerRef.current?.stop();
     }
-  }, [voiceStatus]);
+  }, [voiceStatus, handleJarvisLiveError]);
   
   // Cleanup for LiveSessionManager on component unmount
   useEffect(() => {
@@ -253,31 +269,13 @@ const App: React.FC = () => {
     @keyframes scanline { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
     @keyframes waveform-pulse { 0%, 100% { transform: scaleY(0.5); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
     @keyframes live-waveform { 0% { transform: scaleY(0.2); } 25% { transform: scaleY(1.0); } 50% { transform: scaleY(0.4); } 75% { transform: scaleY(0.8); } 100% { transform: scaleY(0.2); } }
-    @keyframes float { 
-      0%   { transform: translateY(0px) rotateX(0deg) rotateY(0deg); } 
-      33%  { transform: translateY(-12px) rotateX(5deg) rotateY(-10deg); }
-      66%  { transform: translateY(5px) rotateX(-10deg) rotateY(5deg); }
-      100% { transform: translateY(0px) rotateX(0deg) rotateY(0deg); } 
-    }
-    @keyframes holographic-particles-float {
-        0% { transform: translate(0, 0); opacity: 0.1; }
-        20% { opacity: 0.8; }
-        50% { transform: translate(10px, -40px); opacity: 0.5; }
-        80% { opacity: 1; }
-        100% { transform: translate(-10px, -100px); opacity: 0; }
-    }
-    @keyframes holographic-scanline {
-        0% { transform: translateY(-100%); }
-        100% { transform: translateY(100%); }
-    }
-
+    
     .animate-fadeIn { animation: fadeIn 0.5s ease-out forwards; }
     .animate-fadeInFromRight { animation: fadeInFromRight 0.5s ease-out forwards; }
     .animate-fadeInPulse { animation: fadeInPulse 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards; }
     .animate-scanline { animation: scanline 1.5s linear infinite; }
     .animate-pulse-glow { animation: pulse-glow 2s infinite ease-in-out; }
     .animate-grid { animation: animate-grid 8s linear infinite; }
-    .animate-holographic-flicker { animation: holographic-flicker 3s infinite; }
 
     .bg-grid-pattern {
       background-image: linear-gradient(to right, rgba(0, 119, 255, 0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 119, 255, 0.1) 1px, transparent 1px);
@@ -290,59 +288,10 @@ const App: React.FC = () => {
     .ai-core-ring:nth-child(3) { animation-duration: 4s; inset: 20%; border-top-color: #f0f; }
     
     .prose { --tw-prose-body: currentColor; --tw-prose-bold: currentColor; }
-
-    .holo-container {
-      perspective: 1000px;
-    }
-    .holo-object {
-      width: 100px;
-      height: 100px;
-      position: relative;
-      transform-style: preserve-3d;
-      animation: holographic-rotate 20s ease-in-out infinite;
-    }
-    .holo-face {
-      position: absolute;
-      width: 100px;
-      height: 100px;
-      border: 1px solid rgba(0, 255, 255, 0.5);
-      background: radial-gradient(circle, rgba(0, 255, 255, 0.15) 0%, rgba(0, 255, 255, 0) 60%);
-      box-shadow: 0 0 15px rgba(0, 255, 255, 0.3) inset;
-      filter: drop-shadow(0 0 5px #00ffff);
-      overflow: hidden;
-    }
-    .holo-face-front  { transform: translateZ(50px); }
-    .holo-face-back   { transform: rotateY(180deg) translateZ(50px); }
-    .holo-face-left   { transform: rotateY(-90deg) translateZ(50px); }
-    .holo-face-right  { transform: rotateY(90deg) translateZ(50px); }
-    .holo-face-top    { transform: rotateX(90deg) translateZ(50px); }
-    .holo-face-bottom { transform: rotateX(-90deg) translateZ(50px); }
-
-    .holo-particle {
-        position: absolute;
-        background-color: #00ffff;
-        border-radius: 50%;
-        box-shadow: 0 0 6px #00ffff, 0 0 12px #00ffff, 0 0 18px #00ffff;
-        animation: holographic-particles-float infinite ease-in-out;
-    }
-
-    .holo-scanline {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-            to bottom,
-            transparent 0%,
-            rgba(0, 255, 255, 0.2) 49%,
-            rgba(0, 255, 255, 0.5) 50%,
-            rgba(0, 255, 255, 0.2) 51%,
-            transparent 100%
-        );
-        animation: holographic-scanline 3s linear infinite;
-        opacity: 0.7;
-    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,255,255,0.3); border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,255,255,0.5); }
   `;
 
   if (isBooting) return <BootSequence onComplete={handleBootComplete} />;
@@ -360,12 +309,21 @@ const App: React.FC = () => {
         <div className="relative flex-1 flex justify-center items-center p-4 gap-4">
             <aside className="w-48 h-full hidden lg:flex flex-col space-y-4">
               <SystemStatusPanel />
-              <HolographicDisplayPanel />
+              {/* HolographicDisplayPanel removed from sidebar, now central */}
             </aside>
             <main className={`h-full w-full max-w-5xl flex flex-col border bg-black/40 shadow-2xl transition-all duration-500 ${currentStyle.border} ${currentStyle.shadow}`}>
-                <header className={`relative text-center p-3 border-b flex justify-center items-center ${currentStyle.border} ${currentStyle.text}`}>
-                    <h1 className="text-xl font-bold tracking-[0.3em]" style={{ textShadow: '0 0 8px currentColor' }}>JARVIS PRIME</h1>
+                <header className={`relative text-center p-2 border-b flex justify-center items-center bg-black/50 ${currentStyle.border} ${currentStyle.text}`}>
+                    <h1 className="text-lg font-bold tracking-[0.5em] text-cyan-400/80">JARVIS // EXECUTIVE_CORE</h1>
                 </header>
+                
+                {/* --- TOP SECTION: VISUALIZATION & VOICE --- */}
+                <HolographicCore 
+                  voiceStatus={voiceStatus}
+                  jarvisTranscript={jarvisTranscript}
+                  userTranscript={userTranscript}
+                />
+
+                {/* --- BOTTOM SECTION: TEXT CHAT & COMMS --- */}
                 <ChatWindow messages={messages} isLoading={isLoading} protocol={currentProtocol} />
                 <InputBar
                   onSendMessage={handleSendMessage}

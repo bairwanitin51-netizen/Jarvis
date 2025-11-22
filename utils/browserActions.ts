@@ -8,12 +8,12 @@
 export const highlightElement = (element: HTMLElement) => {
   const originalOutline = element.style.outline;
   const originalBoxShadow = element.style.boxShadow;
-  element.style.outline = '3px solid #00ffff';
-  element.style.boxShadow = '0 0 15px #00ffff';
+  element.style.outline = '2px solid #00ffff';
+  element.style.boxShadow = '0 0 15px rgba(0, 255, 255, 0.5)';
   setTimeout(() => {
     element.style.outline = originalOutline;
     element.style.boxShadow = originalBoxShadow;
-  }, 2000);
+  }, 1500);
 };
 
 /**
@@ -46,13 +46,17 @@ export const scroll = (direction: 'up' | 'down', pixels: number = window.innerHe
  * @returns An object indicating the result of the operation.
  */
 export const click = (selector: string): { success: boolean; message: string } => {
-  const element = document.querySelector<HTMLElement>(selector);
-  if (element) {
-    highlightElement(element);
-    element.click();
-    return { success: true, message: `Clicked element with selector "${selector}".` };
+  try {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element) {
+        highlightElement(element);
+        element.click();
+        return { success: true, message: `Clicked element: "${selector}".` };
+      }
+      return { success: false, message: `Element "${selector}" not found.` };
+  } catch (e) {
+      return { success: false, message: `Invalid selector: ${selector}` };
   }
-  return { success: false, message: `Element with selector "${selector}" not found.` };
 };
 
 /**
@@ -62,16 +66,58 @@ export const click = (selector: string): { success: boolean; message: string } =
  * @returns An object indicating the result of the operation.
  */
 export const typeText = (text: string, selector: string): { success: boolean; message: string } => {
-  const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
-  if (element) {
-    highlightElement(element);
-    element.focus();
-    element.value = text;
-    // Dispatch input event to trigger any listeners (e.g., in React)
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    return { success: true, message: `Typed "${text}" into element with selector "${selector}".` };
+  try {
+      const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
+      if (element) {
+        highlightElement(element);
+        element.focus();
+        element.value = text;
+        // Dispatch input event to trigger React/Framework listeners
+        const event = new Event('input', { bubbles: true });
+        element.dispatchEvent(event);
+        return { success: true, message: `Typed "${text}" into "${selector}".` };
+      }
+      return { success: false, message: `Input "${selector}" not found.` };
+  } catch (e) {
+      return { success: false, message: `Invalid selector: ${selector}` };
   }
-  return { success: false, message: `Input element with selector "${selector}" not found.` };
+};
+
+/**
+ * Simulates pressing a specific key (e.g., Enter) on an element or the window.
+ * @param key - The key to press (e.g., 'Enter', 'Escape').
+ * @param selector - Optional selector to focus before pressing.
+ */
+export const pressKey = (key: string, selector?: string): { success: boolean, message: string } => {
+    try {
+        let element: HTMLElement | null = document.body;
+        
+        if (selector) {
+            element = document.querySelector<HTMLElement>(selector);
+            if (!element) return { success: false, message: `Element "${selector}" not found for key press.` };
+            highlightElement(element);
+            element.focus();
+        }
+
+        const keyEvent = new KeyboardEvent('keydown', {
+            key: key,
+            code: key,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        
+        element.dispatchEvent(keyEvent);
+        
+        // Specific handling for 'Enter' on forms if the event didn't trigger native submit
+        if (key === 'Enter' && element instanceof HTMLInputElement && element.form) {
+             element.form.requestSubmit();
+        }
+
+        return { success: true, message: `Simulated key press: [${key}].` };
+    } catch (e) {
+        return { success: false, message: `Failed to press key: ${key}` };
+    }
 };
 
 /**
@@ -92,18 +138,20 @@ export const openApplication = (appName: string): { success: boolean, message: s
         'amazon': 'https://www.amazon.com',
         'wikipedia': 'https://www.wikipedia.org',
         'whatsapp': 'https://web.whatsapp.com',
-        'vscode': 'vscode://file', // Will prompt to open desktop app
+        'vscode': 'vscode://file', 
+        'chatgpt': 'https://chat.openai.com',
+        'claude': 'https://claude.ai'
     };
 
     const url = APP_URL_MAP[appName.toLowerCase()];
     if (url) {
         try {
             window.open(url, '_blank', 'noopener,noreferrer');
-            return { success: true, message: `Opening ${appName} in a new tab.` };
+            return { success: true, message: `Launching ${appName}...` };
         } catch (e) {
             console.error("Failed to open URL:", e);
-            return { success: false, message: `Could not open ${appName}. Browser may be blocking pop-ups.` };
+            return { success: false, message: `Popup blocked for ${appName}.` };
         }
     }
-    return { success: false, message: `Application "${appName}" is not recognized.` };
+    return { success: false, message: `Application "${appName}" unknown.` };
 };
