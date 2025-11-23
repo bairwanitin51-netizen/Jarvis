@@ -16,32 +16,29 @@ const useFluctuatingValue = (base: number, range: number, delay: number) => {
 };
 
 export const SystemStatusPanel: React.FC = () => {
-  const cpuLoad = useFluctuatingValue(35, 10, 2000);
-  const memUsage = useFluctuatingValue(58, 5, 3000);
-  const uplinkSpeed = useFluctuatingValue(1.21, 0.5, 2500);
-  const neuralLoad = useFluctuatingValue(72, 15, 1500);
+  const groqLatency = useFluctuatingValue(0.12, 0.05, 800);
+  const gptLogic = useFluctuatingValue(98, 2, 3000);
+  const veoCore = useFluctuatingValue(100, 0, 5000);
+  const geminiVision = useFluctuatingValue(99, 1, 2000);
 
   return (
-    <TelemetryPanel title="SYSTEM STATUS">
+    <TelemetryPanel title="HYBRID_OMNI_CORE">
       <div className="space-y-1">
         <div className="flex justify-between">
-            <span>STATUS:</span> <span className="text-green-400 font-bold">ONLINE</span>
-        </div>
-        <div className="flex justify-between">
-            <span>AGI CORE:</span> <span className="text-purple-400 font-bold animate-pulse">ACTIVE</span>
+            <span>STATUS:</span> <span className="text-green-400 font-bold">OPTIMAL</span>
         </div>
         <div className="h-px bg-cyan-500/20 my-1"></div>
         <div className="flex justify-between">
-            <span>CPU LOAD:</span> <span className="text-cyan-300">{cpuLoad.toFixed(1)}%</span>
+            <span>GROQ_SPEED:</span> <span className="text-cyan-300">{groqLatency.toFixed(3)}s</span>
         </div>
         <div className="flex justify-between">
-            <span>NEURAL:</span> <span className="text-cyan-300">{neuralLoad.toFixed(1)}%</span>
+            <span>GPT_LOGIC:</span> <span className="text-cyan-300">{gptLogic.toFixed(0)}%</span>
         </div>
         <div className="flex justify-between">
-            <span>MEM USAGE:</span> <span className="text-cyan-300">{memUsage.toFixed(1)}%</span>
+            <span>GEMINI_VIS:</span> <span className="text-cyan-300">{geminiVision.toFixed(0)}%</span>
         </div>
-        <div className="flex justify-between">
-            <span>UPLINK:</span> <span className="text-cyan-300">{uplinkSpeed.toFixed(2)} GW</span>
+         <div className="flex justify-between">
+            <span>VEO_3.1:</span> <span className="text-purple-400 font-bold animate-pulse">STANDBY</span>
         </div>
       </div>
     </TelemetryPanel>

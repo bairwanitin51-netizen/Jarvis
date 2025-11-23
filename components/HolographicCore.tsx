@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { VoiceStatus } from '../services/jarvisService';
 
@@ -6,15 +5,18 @@ interface HolographicCoreProps {
   voiceStatus: VoiceStatus;
   jarvisTranscript: string;
   userTranscript: string;
+  variant?: 'default' | 'minimal';
 }
 
 export const HolographicCore: React.FC<HolographicCoreProps> = ({ 
   voiceStatus, 
   jarvisTranscript, 
-  userTranscript 
+  userTranscript,
+  variant = 'default'
 }) => {
   const isVoiceActive = voiceStatus === 'LISTENING' || voiceStatus === 'SPEAKING' || voiceStatus === 'CONNECTING';
   const isSpeaking = voiceStatus === 'SPEAKING';
+  const isMinimal = variant === 'minimal';
   
   const [rotation, setRotation] = useState(0);
 
@@ -64,60 +66,58 @@ export const HolographicCore: React.FC<HolographicCoreProps> = ({
   const particleColorClass = getParticleColor();
 
   return (
-    <div className={`w-full aspect-video bg-black/90 relative overflow-hidden border-b-4 transition-colors duration-700 ${voiceStatus === 'ERROR' ? 'border-red-900' : 'border-cyan-900'} shadow-[0_0_50px_rgba(0,0,0,0.8)] mb-4 flex flex-col items-center justify-center group`}>
-       {/* --- Background Grid & Vignette --- */}
-       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#000_90%)] z-10"></div>
-       <div className="absolute inset-0 bg-grid-pattern opacity-20 animate-grid" style={{ backgroundSize: '3rem 3rem' }}></div>
+    <div className={`w-full relative overflow-hidden transition-colors duration-700 flex flex-col items-center justify-center group ${isMinimal ? 'bg-transparent h-full' : 'aspect-video bg-black/90 border-b-4 border-cyan-900 shadow-[0_0_50px_rgba(0,0,0,0.8)] mb-4'}`}>
+       {/* --- Background Grid & Vignette (Only in Default) --- */}
+       {!isMinimal && (
+           <>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#000_90%)] z-10"></div>
+            <div className="absolute inset-0 bg-grid-pattern opacity-20 animate-grid" style={{ backgroundSize: '3rem 3rem' }}></div>
+           </>
+       )}
        
-       {/* --- Peripheral Data HUDs (Left) --- */}
-       <div className="absolute left-4 top-1/2 -translate-y-1/2 w-48 hidden lg:block opacity-80 z-20 font-mono text-[10px] text-cyan-500">
-          <div className={`border-l-2 pl-4 space-y-4 transition-colors duration-500 ${voiceStatus === 'LISTENING' ? 'border-green-500' : 'border-cyan-500/30'}`}>
-             <div>
-                <p className="tracking-[0.3em] text-xs font-bold text-cyan-100 mb-1">SYS_ANALYSIS</p>
-                <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden"><div className={`h-full animate-[scanline_2s_ease-in-out_infinite] w-2/3 ${particleColorClass}`}></div></div>
-             </div>
-             <div>
-                <p className="tracking-widest text-cyan-300 mb-1">NEURAL_SYNC</p>
-                <div className="flex gap-1">
-                    {[...Array(12)].map((_,i) => (
-                        <div key={i} className={`h-4 w-1 rounded-sm ${i < 8 ? particleColorClass : 'bg-gray-800'} opacity-90`}></div>
+       {/* --- Peripheral Data HUDs (Only in Default) --- */}
+       {!isMinimal && (
+        <>
+           <div className="absolute left-4 top-1/2 -translate-y-1/2 w-48 hidden lg:block opacity-80 z-20 font-mono text-[10px] text-cyan-500">
+              <div className={`border-l-2 pl-4 space-y-4 transition-colors duration-500 ${voiceStatus === 'LISTENING' ? 'border-green-500' : 'border-cyan-500/30'}`}>
+                 <div>
+                    <p className="tracking-[0.3em] text-xs font-bold text-cyan-100 mb-1">SYS_ANALYSIS</p>
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden"><div className={`h-full animate-[scanline_2s_ease-in-out_infinite] w-2/3 ${particleColorClass}`}></div></div>
+                 </div>
+                 <div className="pt-2 border-t border-dashed border-cyan-500/20">
+                    {hexDump.map((hex, i) => (
+                        <div key={i} className="flex justify-between text-[9px] text-cyan-600 font-bold">
+                            <span>0x{i}F</span>
+                            <span className="text-cyan-400">{hex}</span>
+                        </div>
                     ))}
-                </div>
-             </div>
-             <div className="pt-2 border-t border-dashed border-cyan-500/20">
-                {hexDump.map((hex, i) => (
-                    <div key={i} className="flex justify-between text-[9px] text-cyan-600 font-bold">
-                        <span>0x{i}F</span>
-                        <span className="text-cyan-400">{hex}</span>
-                    </div>
-                ))}
-             </div>
-          </div>
-       </div>
+                 </div>
+              </div>
+           </div>
 
-       {/* --- Peripheral Data HUDs (Right) --- */}
-       <div className="absolute right-4 top-1/2 -translate-y-1/2 w-48 hidden lg:block opacity-80 z-20 font-mono text-[10px] text-right text-cyan-500">
-          <div className={`border-r-2 pr-4 space-y-4 transition-colors duration-500 ${voiceStatus === 'SPEAKING' ? 'border-cyan-400' : 'border-cyan-500/30'}`}>
-             <div>
-                <p className="tracking-[0.3em] text-xs font-bold text-cyan-100 mb-1">CORE_PROCESS</p>
-                <p className={`text-xs font-bold animate-pulse ${isVoiceActive ? 'text-white' : 'text-cyan-700'}`}>
-                    {voiceStatus === 'OFF' ? 'STANDBY' : voiceStatus}
-                </p>
-             </div>
-             <div className="flex flex-col items-end gap-1 mt-2 opacity-70">
-                <div className={`w-24 h-[2px] ${particleColorClass}`}></div>
-                <div className={`w-16 h-[2px] ${particleColorClass}`}></div>
-                <div className={`w-32 h-[2px] ${particleColorClass}`}></div>
-             </div>
-             <div className="pt-4 text-cyan-400 font-bold">
-                 <p>TEMP: <span className="text-white">{(45 + Math.random() * 5).toFixed(1)}°C</span></p>
-                 <p>VOLT: <span className="text-white">{(12 + Math.random()).toFixed(2)}V</span></p>
-             </div>
-          </div>
-       </div>
+           <div className="absolute right-4 top-1/2 -translate-y-1/2 w-48 hidden lg:block opacity-80 z-20 font-mono text-[10px] text-right text-cyan-500">
+              <div className={`border-r-2 pr-4 space-y-4 transition-colors duration-500 ${voiceStatus === 'SPEAKING' ? 'border-cyan-400' : 'border-cyan-500/30'}`}>
+                 <div>
+                    <p className="tracking-[0.3em] text-xs font-bold text-cyan-100 mb-1">CORE_PROCESS</p>
+                    <p className={`text-xs font-bold animate-pulse ${isVoiceActive ? 'text-white' : 'text-cyan-700'}`}>
+                        {voiceStatus === 'OFF' ? 'STANDBY' : voiceStatus}
+                    </p>
+                 </div>
+                 <div className="flex flex-col items-end gap-1 mt-2 opacity-70">
+                    <div className={`w-24 h-[2px] ${particleColorClass}`}></div>
+                    <div className={`w-16 h-[2px] ${particleColorClass}`}></div>
+                 </div>
+                 <div className="pt-4 text-cyan-400 font-bold">
+                     <p>TEMP: <span className="text-white">{(45 + Math.random() * 5).toFixed(1)}°C</span></p>
+                     <p>VOLT: <span className="text-white">{(12 + Math.random()).toFixed(2)}V</span></p>
+                 </div>
+              </div>
+           </div>
+        </>
+       )}
 
        {/* --- CENTRAL CORE VISUALIZATION --- */}
-       <div className="relative z-30 w-80 h-80 flex items-center justify-center">
+       <div className={`relative z-30 flex items-center justify-center ${isMinimal ? 'w-96 h-96' : 'w-80 h-80'}`}>
             {/* Outer Spinning Data Ring */}
             <div className={`absolute inset-0 rounded-full border border-dashed opacity-40 animate-[spin_30s_linear_infinite] ${voiceStatus === 'ERROR' ? 'border-red-500' : 'border-cyan-400'}`}></div>
             
@@ -156,7 +156,7 @@ export const HolographicCore: React.FC<HolographicCoreProps> = ({
                         key={i}
                         className={`absolute top-1/2 left-1/2 w-1 h-1 ${particleColorClass} rounded-full shadow-[0_0_10px_currentColor]`}
                         style={{
-                            transform: `rotate(${i * 60 + rotation}deg) translateX(${100 + Math.random() * 20}px)`,
+                            transform: `rotate(${i * 60 + rotation}deg) translateX(${isMinimal ? 130 + Math.random() * 20 : 100 + Math.random() * 20}px)`,
                             opacity: Math.random() > 0.5 ? 1 : 0,
                             transition: 'all 0.2s'
                         }}
@@ -166,30 +166,26 @@ export const HolographicCore: React.FC<HolographicCoreProps> = ({
        </div>
 
        {/* --- Status Text & Transcript --- */}
-       <div className="absolute bottom-8 left-0 right-0 text-center z-30 pointer-events-none">
-           <div className={`inline-block px-6 py-1 border backdrop-blur-md rounded-full mb-4 transition-colors duration-500 ${voiceStatus === 'ERROR' ? 'bg-red-900/50 border-red-500' : 'bg-cyan-900/40 border-cyan-500/50'}`}>
-               <p className={`font-mono text-xs tracking-[0.3em] font-bold ${isSpeaking ? 'text-white animate-pulse' : 'text-cyan-300'}`}>
-                   {voiceStatus === 'OFF' ? 'SYSTEM OFFLINE' : `PROTOCOL: ${voiceStatus}`}
-               </p>
-           </div>
+       <div className={`absolute left-0 right-0 text-center z-30 pointer-events-none ${isMinimal ? 'bottom-32' : 'bottom-8'}`}>
+           {!isMinimal && (
+               <div className={`inline-block px-6 py-1 border backdrop-blur-md rounded-full mb-4 transition-colors duration-500 ${voiceStatus === 'ERROR' ? 'bg-red-900/50 border-red-500' : 'bg-cyan-900/40 border-cyan-500/50'}`}>
+                   <p className={`font-mono text-xs tracking-[0.3em] font-bold ${isSpeaking ? 'text-white animate-pulse' : 'text-cyan-300'}`}>
+                       {voiceStatus === 'OFF' ? 'SYSTEM OFFLINE' : `PROTOCOL: ${voiceStatus}`}
+                   </p>
+               </div>
+           )}
            
            {(userTranscript || jarvisTranscript) && (
-               <div className="max-w-3xl mx-auto px-6 py-2 bg-black/40 backdrop-blur-sm border-t border-b border-cyan-500/10">
-                   <p className="text-cyan-50 font-mono text-sm md:text-base leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+               <div className={`max-w-3xl mx-auto px-6 py-2 ${isMinimal ? 'bg-transparent' : 'bg-black/40 backdrop-blur-sm border-t border-b border-cyan-500/10'}`}>
+                   <p className={`font-mono leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] ${isMinimal ? 'text-xl text-white/90' : 'text-sm text-cyan-50'}`}>
                        {isSpeaking ? (
-                           <span className="text-cyan-200">JARVIS: "{jarvisTranscript}"</span>
+                           <span className="text-cyan-200">{jarvisTranscript}</span>
                        ) : (
-                           <span className="text-white">USER: "{userTranscript}"</span>
+                           <span className="text-white">{userTranscript}</span>
                        )}
                    </p>
                </div>
            )}
-       </div>
-
-       {/* --- "Solar Flares" / Data Streams (CSS Effects) --- */}
-       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full pointer-events-none overflow-hidden opacity-30">
-           <div className={`absolute top-1/2 left-1/2 w-[120%] h-[2px] bg-gradient-to-r from-transparent via-current to-transparent -translate-x-1/2 -translate-y-1/2 rotate-45 ${coreColorClass}`}></div>
-           <div className={`absolute top-1/2 left-1/2 w-[120%] h-[2px] bg-gradient-to-r from-transparent via-current to-transparent -translate-x-1/2 -translate-y-1/2 -rotate-45 ${coreColorClass}`}></div>
        </div>
     </div>
   );

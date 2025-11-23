@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Chat, Modality, LiveServerMessage, FunctionDeclaration, Type, FunctionCall } from "@google/genai";
 import { JARVIS_SYSTEM_INSTRUCTION } from '../constants';
-import { MessageSender, type SystemAction, type SystemInfo, type Message, type Source, type RenderModel, type Simulation, type Widget, type FileOperation } from '../types';
+import { MessageSender, type SystemAction, type SystemInfo, type Message, type Source, type RenderModel, type Simulation, type Widget, type FileOperation, type SettingsUpdate, type UiAction, type ClipboardAction, type HighlightAction, type ThemeAction } from '../types';
 import { createBlob, decode, decodeAudioData } from '../utils/audioUtils';
 import * as BrowserActions from '../utils/browserActions';
 
@@ -57,7 +57,7 @@ const getUserLocation = async (): Promise<{latitude: number; longitude: number} 
 
 // --- VIDEO GENERATION SERVICE (VEO 3.1) ---
 
-const generateVeoVideo = async (prompt: string): Promise<string | null> => {
+const generateVeoVideo = async (prompt: string): Promise<{ url: string | null; error?: string }> => {
     try {
         // Ensure fresh instance and key for the heavy operation
         await ensureApiKeySelected();
@@ -71,6 +71,8 @@ const generateVeoVideo = async (prompt: string): Promise<string | null> => {
         // List of models to try in order of preference (Fast first, then Quality)
         // This fallback strategy helps avoid 404s if a specific preview model is not available to the key.
         const candidateModels = ['veo-3.1-fast-generate-preview', 'veo-3.1-generate-preview'];
+        let lastError = null;
+        let accessDenied = false;
 
         for (const model of candidateModels) {
             try {
@@ -85,20 +87,28 @@ const generateVeoVideo = async (prompt: string): Promise<string | null> => {
                     }
                 });
                 usedModel = model;
+                lastError = null;
                 break; // Success, exit loop
             } catch (error: any) {
+                const errorMsg = error.message || error.toString() || JSON.stringify(error);
+                console.warn(`Veo model ${model} failed:`, errorMsg);
+
                 // If 404, it implies no access to this specific model for this project/key
-                if (error.message?.includes('404') || error.toString().includes('404') || JSON.stringify(error).includes('404')) {
-                     console.warn(`Veo model ${model} returned 404. Trying backup...`);
+                if (errorMsg.includes('404') || errorMsg.includes('Not Found')) {
+                     accessDenied = true;
+                     lastError = "404_NOT_FOUND";
                      continue;
                 }
-                throw error; // Re-throw other errors (e.g., 500, 400)
+                lastError = errorMsg;
             }
         }
 
+        if (lastError === "404_NOT_FOUND" && !operation) {
+             return { url: null, error: "Veo Model Not Found (404). Ensure your API key has access to Veo 3.1 (Trusted Tester Program) or check your GCP project permissions." };
+        }
+
         if (!operation) {
-            console.error("Veo model not found (404). Please ensure the API key has access to Veo 3.1.");
-            return null;
+            return { url: null, error: lastError || "Video generation failed to initialize." };
         }
 
         // Poll for completion
@@ -114,12 +124,12 @@ const generateVeoVideo = async (prompt: string): Promise<string | null> => {
             // The response.body contains the MP4 bytes. You must append an API key when fetching from the download link.
             const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
             const blob = await videoResponse.blob();
-            return URL.createObjectURL(blob);
+            return { url: URL.createObjectURL(blob) };
         }
-        return null;
-    } catch (error) {
+        return { url: null, error: "No video URI in response." };
+    } catch (error: any) {
         console.error("Veo 3.1 Video Generation Failed:", error);
-        return null;
+        return { url: null, error: error.message || "Unknown Veo Error" };
     }
 };
 
@@ -160,6 +170,15 @@ const DB_ACCESS_REGEX = /\[ACCESSING_DATABASE:\s*([^\]]+)\]/i;
 const CURRENT_MODE_REGEX = /\[CURRENT_MODE:\s*([^\]]+)\]/i;
 const VISUAL_WIDGET_REGEX = /\[VISUAL_WIDGET:\s*([^\]]+)\]/i;
 const VEO_ACTION_REGEX = /\[VEO_ACTION:\s*GENERATE\]([\s\S]*?)\[\/VEO_ACTION\]/i;
+const SETTING_UPDATE_REGEX = /\[SETTING_UPDATE:\s*([^=]+)=([^\]]+)\]/i;
+const TYPING_SPEED_REGEX = /\[TYPING_SPEED:\s*[^\]]+\]/i;
+
+// --- M.U.I. REGEX ---
+const UI_ACTION_REGEX = /\[UI_ACTION:\s*([^|]+)(?:\s*\|\s*(?:Amount:\s*|Target:\s*)?([^\]]+))?\]/i;
+const CLIPBOARD_REGEX = /\[SYSTEM_CLIPBOARD:\s*([^|]+)(?:\s*\|\s*(?:Content:\s*|Type:\s*)?([^\]]+))?\]/i;
+const HIGHLIGHT_REGEX = /\[UI_HIGHLIGHT:\s*"([^"]+)"\s*\|\s*(?:Color:\s*|Style:\s*)?([^\]]+)\]/i;
+const THEME_SWITCH_REGEX = /\[THEME_SWITCH:\s*([^\]]+)\]/i;
+const UI_ELEMENTS_REGEX = /\[UI_ELEMENTS:\s*([^\]]+)\]/i;
 
 interface JarvisResponse {
   text: string;
@@ -172,6 +191,15 @@ interface JarvisResponse {
   simulation?: Simulation;
   widget?: Widget;
   fileOperation?: FileOperation;
+  settingsUpdate?: SettingsUpdate;
+  
+  // M.U.I. Response Fields
+  uiAction?: UiAction;
+  clipboardAction?: ClipboardAction;
+  highlightAction?: HighlightAction;
+  themeAction?: ThemeAction;
+  uiElementAction?: string;
+
   mode?: string;
   visualContext?: string;
   videoPrompt?: string;
@@ -184,9 +212,18 @@ const parseResponse = (text: string | undefined): Omit<JarvisResponse, 'sources'
   let simulation: Simulation | undefined = undefined;
   let widget: Widget | undefined = undefined;
   let fileOperation: FileOperation | undefined = undefined;
+  let settingsUpdate: SettingsUpdate | undefined = undefined;
   let mode: string | undefined = undefined;
   let visualContext: string | undefined = undefined;
   let videoPrompt: string | undefined = undefined;
+  
+  // M.U.I. Vars
+  let uiAction: UiAction | undefined = undefined;
+  let clipboardAction: ClipboardAction | undefined = undefined;
+  let highlightAction: HighlightAction | undefined = undefined;
+  let themeAction: ThemeAction | undefined = undefined;
+  let uiElementAction: string | undefined = undefined;
+
   const systemInfo: SystemInfo = {};
 
   // Extract Current Mode
@@ -203,26 +240,24 @@ const parseResponse = (text: string | undefined): Omit<JarvisResponse, 'sources'
     visualContext = visualWidgetMatch[1].trim();
   }
 
+  // Clean Typing Speed Tags (we consume them but don't display them)
+  cleanedText = cleanedText.replace(TYPING_SPEED_REGEX, '');
+
   // Check for Veo Action
   const veoMatch = cleanedText.match(VEO_ACTION_REGEX);
   if (veoMatch) {
       const veoContent = veoMatch[1];
       
       // Parse using the new Advanced Video Generation Protocol structure
-      // We use lookaheads to find content between specific headers
       const scene = veoContent.match(/SCENE DESCRIPTION:\s*([\s\S]+?)(?=\n\*\*|ACTION|CAMERA|LIGHTING|AUDIO|\[\/)/i)?.[1]?.trim() || '';
       const actionPhysics = veoContent.match(/ACTION & PHYSICS:\s*([\s\S]+?)(?=\n\*\*|CAMERA|LIGHTING|AUDIO|\[\/)/i)?.[1]?.trim() || '';
       const camera = veoContent.match(/CAMERA & ANGLES:\s*([\s\S]+?)(?=\n\*\*|LIGHTING|AUDIO|\[\/)/i)?.[1]?.trim() || '';
       const lighting = veoContent.match(/LIGHTING & ATMOSPHERE:\s*([\s\S]+?)(?=\n\*\*|AUDIO|\[\/)/i)?.[1]?.trim() || '';
-      // Match "AUDIO SPECIFICATIONS" or "AUDIO SPECIFICATIONS (CRITICAL)"
       const audio = veoContent.match(/AUDIO SPECIFICATIONS(?:.*):\s*([\s\S]+?)(?=\n\*\*|\[\/|$)/i)?.[1]?.trim() || '';
       
       if (scene) {
-          // Construct high-fidelity prompt for the API
-          // Combine all detailed sections into one rich prompt suitable for Veo
           videoPrompt = `Cinematic Video Generation. Scene: ${scene}. Action & Physics: ${actionPhysics}. Camera: ${camera}. Lighting: ${lighting}. Audio: ${audio}. High Resolution, Photorealistic, 4K.`;
       } else {
-          // Fallback to old parsing or simple extraction if AI uses old format
           const subject = veoContent.match(/\*\s*Subject:\s*(.+?)(?:\n|$)/i)?.[1] || '';
           const cameraFallback = veoContent.match(/\*\s*Camera:\s*(.+?)(?:\n|$)/i)?.[1] || '';
           const lightingFallback = veoContent.match(/\*\s*Lighting:\s*(.+?)(?:\n|$)/i)?.[1] || '';
@@ -230,7 +265,6 @@ const parseResponse = (text: string | undefined): Omit<JarvisResponse, 'sources'
           if (subject) {
              videoPrompt = `${subject}. Cinematic shot: ${cameraFallback}. Lighting: ${lightingFallback}. 4K resolution, photorealistic.`;
           } else {
-             // Last resort: just use the raw content minus tags
              videoPrompt = veoContent.replace(/\*|\[|\]/g, '').trim();
           }
       }
@@ -317,6 +351,58 @@ const parseResponse = (text: string | undefined): Omit<JarvisResponse, 'sources'
     systemInfo.systemFailure = failureMatch[1].trim();
   }
 
+  const settingMatch = cleanedText.match(SETTING_UPDATE_REGEX);
+  if (settingMatch) {
+      cleanedText = cleanedText.replace(SETTING_UPDATE_REGEX, '').trim();
+      settingsUpdate = {
+          key: settingMatch[1].trim(),
+          value: settingMatch[2].trim()
+      };
+  }
+
+  // --- M.U.I Parsing ---
+  const uiActionMatch = cleanedText.match(UI_ACTION_REGEX);
+  if (uiActionMatch) {
+      cleanedText = cleanedText.replace(UI_ACTION_REGEX, '').trim();
+      uiAction = {
+          type: uiActionMatch[1].trim() as any,
+          amount: uiActionMatch[2]?.trim()
+      };
+  }
+
+  const clipboardMatch = cleanedText.match(CLIPBOARD_REGEX);
+  if (clipboardMatch) {
+      cleanedText = cleanedText.replace(CLIPBOARD_REGEX, '').trim();
+      clipboardAction = {
+          type: clipboardMatch[1].trim() as any,
+          content: clipboardMatch[2]?.trim()
+      };
+  }
+
+  const highlightMatch = cleanedText.match(HIGHLIGHT_REGEX);
+  if (highlightMatch) {
+      cleanedText = cleanedText.replace(HIGHLIGHT_REGEX, '').trim();
+      highlightAction = {
+          target: highlightMatch[1].trim(),
+          color: highlightMatch[2].trim()
+      };
+  }
+
+  const themeSwitchMatch = cleanedText.match(THEME_SWITCH_REGEX);
+  if (themeSwitchMatch) {
+      cleanedText = cleanedText.replace(THEME_SWITCH_REGEX, '').trim();
+      themeAction = {
+          theme: themeSwitchMatch[1].trim()
+      };
+  }
+
+  const uiElementsMatch = cleanedText.match(UI_ELEMENTS_REGEX);
+  if (uiElementsMatch) {
+      cleanedText = cleanedText.replace(UI_ELEMENTS_REGEX, '').trim();
+      uiElementAction = uiElementsMatch[1].trim();
+  }
+  // ---------------------
+
   cleanedText = cleanedText.replace(/^\*\*Jarvis:\*\*\s*/i, '').replace(/^Jarvis:\s*/i, '');
 
   return { 
@@ -327,6 +413,12 @@ const parseResponse = (text: string | undefined): Omit<JarvisResponse, 'sources'
     simulation,
     widget,
     fileOperation,
+    settingsUpdate,
+    uiAction,
+    clipboardAction,
+    highlightAction,
+    themeAction,
+    uiElementAction,
     mode,
     visualContext,
     videoPrompt
@@ -425,9 +517,17 @@ export const getJarvisResponse = async (prompt: string, imageAttachment?: { data
     // Handle Video Generation if prompted by the model
     let generatedVideoUrl: string | undefined = undefined;
     if (parsed.videoPrompt) {
-        generatedVideoUrl = await generateVeoVideo(parsed.videoPrompt) || undefined;
+        const videoResult = await generateVeoVideo(parsed.videoPrompt);
+        generatedVideoUrl = videoResult.url || undefined;
+        
         if (!generatedVideoUrl) {
-             parsed.systemInfo = { ...parsed.systemInfo, systemFailure: "VEO_CORE_RENDER_FAILED" };
+             const errorMsg = videoResult.error || "VEO_CORE_RENDER_FAILED";
+             parsed.systemInfo = { ...parsed.systemInfo, systemFailure: errorMsg };
+             
+             // Make permission errors more visible
+             if (errorMsg.includes('404') || errorMsg.includes('Access Denied')) {
+                 parsed.text += `\n\n[SYSTEM ALERT]: ${errorMsg}`;
+             }
         }
     }
 
@@ -893,8 +993,42 @@ export class LiveSessionManager {
         });
       }
       if (this.currentOutputTranscription.trim()) {
-        const { text, action, systemInfo, renderModel, simulation, widget, fileOperation, mode, visualContext } = parseResponse(this.currentOutputTranscription);
-        this.callbacks.onNewMessage({ id: (Date.now() + 1).toString(), sender: MessageSender.JARVIS, text, action, systemInfo, renderModel, simulation, widget, fileOperation, mode, visualContext });
+        const parsed = parseResponse(this.currentOutputTranscription);
+        
+        // Check for Video Generation Prompt even in Live Mode
+        let videoUrl: string | undefined;
+        if (parsed.videoPrompt) {
+             const videoResult = await generateVeoVideo(parsed.videoPrompt);
+             videoUrl = videoResult.url || undefined;
+             if (!videoUrl && videoResult.error) {
+                 parsed.systemInfo = { ...(parsed.systemInfo || {}), systemFailure: videoResult.error };
+                 // Ensure the error is visible in the transcript if it's a permissions issue
+                 if (videoResult.error.includes('404') || videoResult.error.includes('Access Denied')) {
+                    parsed.text += `\n\n[SYSTEM ALERT]: ${videoResult.error}`;
+                 }
+             }
+        }
+
+        this.callbacks.onNewMessage({ 
+            id: (Date.now() + 1).toString(), 
+            sender: MessageSender.JARVIS, 
+            text: parsed.text, 
+            action: parsed.action, 
+            systemInfo: parsed.systemInfo, 
+            renderModel: parsed.renderModel, 
+            simulation: parsed.simulation, 
+            widget: parsed.widget, 
+            fileOperation: parsed.fileOperation, 
+            settingsUpdate: parsed.settingsUpdate, 
+            uiAction: parsed.uiAction, 
+            clipboardAction: parsed.clipboardAction, 
+            highlightAction: parsed.highlightAction, 
+            themeAction: parsed.themeAction, 
+            uiElementAction: parsed.uiElementAction, 
+            mode: parsed.mode, 
+            visualContext: parsed.visualContext,
+            videoUrl: videoUrl
+        });
       }
       // Clear transcripts after turn completion
       this.currentInputTranscription = '';

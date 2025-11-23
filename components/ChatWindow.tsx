@@ -1,26 +1,62 @@
+
 import React, { useRef, useEffect } from 'react';
-import type { Message, Protocol } from '../types';
+import type { Message, Protocol, UiAction } from '../types';
 import { ChatMessage } from './Message';
 
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
   protocol: Protocol;
+  uiAction?: UiAction;
 }
 
-export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading, protocol }) => {
+export const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading, protocol, uiAction }) => {
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isLockedRef = useRef(false);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading]);
+      if (!uiAction) {
+          // Default behavior: Scroll to bottom unless locked
+          if (!isLockedRef.current) {
+              endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }
+          return;
+      }
+
+      const container = containerRef.current;
+      if (!container) return;
+
+      switch (uiAction.type) {
+          case 'SCROLL_UP':
+               container.scrollBy({ top: -window.innerHeight * 0.5, behavior: 'smooth' });
+               break;
+          case 'SCROLL_DOWN':
+               container.scrollBy({ top: window.innerHeight * 0.5, behavior: 'smooth' });
+               break;
+          case 'SCROLL_TO_TOP':
+               container.scrollTo({ top: 0, behavior: 'smooth' });
+               break;
+          case 'SCROLL_TO_BOTTOM':
+               endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+               break;
+          case 'LOCK':
+               isLockedRef.current = true;
+               break;
+          case 'UNLOCK':
+               isLockedRef.current = false;
+               endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+               break;
+          default:
+               // Default auto-scroll behavior if not locked
+               if (!isLockedRef.current) {
+                 endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
+               }
+      }
+  }, [messages, isLoading, uiAction]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+    <div ref={containerRef} className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 custom-scrollbar scroll-smooth">
       {messages.map(msg => (
         <ChatMessage key={msg.id} message={msg} protocol={protocol} />
       ))}

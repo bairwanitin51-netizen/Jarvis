@@ -1,18 +1,19 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatWindow } from './ChatWindow';
 import { InputBar } from './InputBar';
 import { BootSequence } from './BootSequence';
 import { getJarvisResponse, startJarvisSession, LiveSessionManager } from '../services/jarvisService';
 import type { LiveSessionCallbacks, VoiceStatus } from '../services/jarvisService';
-import { Message, MessageSender, Protocol } from '../types';
+import { Message, MessageSender, Protocol, JarvisSettings, UiAction } from '../types';
 import { PROTOCOL_TRIGGERS } from '../constants';
 import { SystemStatusPanel } from './telemetry/SystemStatusPanel';
 import { ResourceMetersPanel } from './telemetry/ResourceMetersPanel';
-import { StockTickerPanel } from './telemetry/StockTickerPanel';
+import { SecurityPanel } from './telemetry/SecurityPanel';
+import { SettingsPanel } from './telemetry/SettingsPanel';
 import { WorldClockPanel } from './telemetry/WorldClockPanel';
 import { DebugPanel } from './telemetry/DebugPanel';
 import { HolographicCore } from './HolographicCore';
+import { LiveInterface } from './LiveInterface';
 
 const App: React.FC = () => {
   const [isBooting, setIsBooting] = useState(true);
@@ -20,6 +21,18 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentProtocol, setCurrentProtocol] = useState<Protocol>(Protocol.NORMAL);
   
+  // Internal Variable State (The "Settings")
+  const [jarvisSettings, setJarvisSettings] = useState<JarvisSettings>({
+      sarcasmLevel: 45,
+      voiceSpeed: 1.2,
+      vpnStatus: 'ACTIVE',
+      theme: 'CYBER'
+  });
+  
+  // M.U.I. State
+  const [focusMode, setFocusMode] = useState(false);
+  const [lastUiAction, setLastUiAction] = useState<UiAction | undefined>(undefined);
+
   // State for unified voice control
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('OFF');
   const [userTranscript, setUserTranscript] = useState('');
@@ -30,6 +43,21 @@ const App: React.FC = () => {
   // Developer / God Mode States
   const [showDebug, setShowDebug] = useState(false);
   const [godMode, setGodMode] = useState(false);
+
+  // Eye Strain Monitor Effect
+  useEffect(() => {
+      const strainTimer = setTimeout(() => {
+          const strainMessage: Message = {
+              id: `sys-strain-${Date.now()}`,
+              sender: MessageSender.SYSTEM_INFO,
+              text: "",
+              systemInfo: { systemFailure: "RETINAL FATIGUE PROBABLE. SUGGESTING 20S BREAK." }
+          };
+          setMessages(prev => [...prev, strainMessage]);
+      }, 1000 * 60 * 30); // Trigger after 30 minutes for demo purposes (real world would be 2 hours)
+
+      return () => clearTimeout(strainTimer);
+  }, []);
 
   // Hotkey listener for Debug Panel
   useEffect(() => {
@@ -51,7 +79,7 @@ const App: React.FC = () => {
         {
           id: 'boot-complete',
           sender: MessageSender.JARVIS,
-          text: 'Core systems online. Hybrid Intelligence Framework active. Awaiting command, Sir.',
+          text: 'J.A.R.V.I.S. PRIME_BUILD_v9.0 Online. Hybrid-Omni Architecture Active. M.U.I. Loaded. Awaiting input, Sir.',
         },
       ]);
     }, 200);
@@ -82,6 +110,69 @@ const App: React.FC = () => {
     const jarvisResponse = await getJarvisResponse(prompt, attachment);
     setIsLoading(false);
 
+    // Handle Settings Updates from AI
+    if (jarvisResponse.settingsUpdate) {
+        const { key, value } = jarvisResponse.settingsUpdate;
+        setJarvisSettings(prev => {
+            const newSettings = { ...prev };
+            if (key.includes('Sarcasm')) newSettings.sarcasmLevel = parseInt(value);
+            if (key.includes('Speed')) newSettings.voiceSpeed = parseFloat(value);
+            if (key.includes('VPN')) newSettings.vpnStatus = value as 'ACTIVE' | 'INACTIVE';
+            return newSettings;
+        });
+    }
+
+    // Handle Theme Action
+    if (jarvisResponse.themeAction) {
+       if (jarvisResponse.themeAction.theme === 'OLED_BLACK') {
+          setJarvisSettings(prev => ({ ...prev, theme: 'DARK' }));
+       }
+    }
+
+    // Handle UI Element Actions (Focus Mode)
+    if (jarvisResponse.uiElementAction === 'HIDE_ALL_EXCEPT_TEXT') {
+        setFocusMode(true);
+    } else if (jarvisResponse.uiElementAction === 'RESTORE_DEFAULT') {
+        setFocusMode(false);
+    }
+
+    // Handle Scroll Actions
+    if (jarvisResponse.uiAction) {
+        setLastUiAction(jarvisResponse.uiAction);
+    } else {
+        setLastUiAction(undefined); // Reset unless specific action
+    }
+
+    // Handle Clipboard Actions
+    if (jarvisResponse.clipboardAction) {
+        const { type, content } = jarvisResponse.clipboardAction;
+        let contentToCopy = content || "";
+
+        // Smart Content Resolver
+        if (content === "Target_Block_01" || type === 'BATCH_COPY') {
+             // Attempt to extract the first code block from the response text
+             const codeBlockMatch = jarvisResponse.text.match(/```[\s\S]*?\n([\s\S]*?)```/);
+             if (codeBlockMatch) {
+                 contentToCopy = codeBlockMatch[1];
+             } else {
+                 // Fallback to full text if no code block found
+                 contentToCopy = jarvisResponse.text;
+             }
+        }
+
+        if (contentToCopy) {
+            navigator.clipboard.writeText(contentToCopy).then(() => {
+                const sysMsg: Message = {
+                    id: `sys-clip-${Date.now()}`,
+                    sender: MessageSender.SYSTEM_INFO,
+                    text: "",
+                    systemInfo: { systemFailure: `M.U.I. NOTIFICATION: Content copied to clipboard (${contentToCopy.length} chars).` }
+                };
+                setMessages(prev => [...prev, sysMsg]);
+            }).catch(err => console.error("Clipboard Failed", err));
+        }
+    }
+
     const newJarvisMessage: Message = {
       id: (Date.now() + 1).toString(),
       sender: MessageSender.JARVIS,
@@ -91,6 +182,9 @@ const App: React.FC = () => {
       systemInfo: jarvisResponse.systemInfo ?? undefined,
       sources: jarvisResponse.sources ?? undefined,
       videoUrl: jarvisResponse.videoUrl, // Pass video URL
+      uiAction: jarvisResponse.uiAction,
+      clipboardAction: jarvisResponse.clipboardAction,
+      highlightAction: jarvisResponse.highlightAction
     };
     setMessages(prev => [...prev, newJarvisMessage]);
   };
@@ -140,7 +234,6 @@ const App: React.FC = () => {
     // If voice is currently OFF, IDLE, or in ERROR, try to start it.
     if (voiceStatus === 'OFF' || voiceStatus === 'IDLE' || voiceStatus === 'ERROR') {
       // If no manager exists, or if it was previously stopped due to an error, create a new one.
-      // This ensures we always get a fresh session and can re-attempt API key selection if needed.
       if (!liveSessionManagerRef.current || voiceStatus === 'ERROR') {
           liveSessionManagerRef.current = null; // Clear old reference to ensure new instance
           const callbacks: LiveSessionCallbacks = {
@@ -167,17 +260,15 @@ const App: React.FC = () => {
         liveSessionManagerRef.current = null;
       }
     };
-  }, []); // Empty dependency array means this runs once on mount and cleanup on unmount
+  }, []);
 
 
   // Effect to handle system action execution (from text mode)
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    // Check if the message is from JARVIS and contains an action
     if (lastMessage && lastMessage.sender === MessageSender.JARVIS && lastMessage.action) {
       const { action } = lastMessage;
       
-      // Map of known applications to their URLs or protocol handlers
       const APP_URL_MAP: { [key: string]: string } = {
         'youtube': 'https://www.youtube.com',
         'spotify': 'https://open.spotify.com',
@@ -211,6 +302,8 @@ const App: React.FC = () => {
             }
         } else if (action.functionType === 'HOME_CTRL') {
             confirmationText = `Adjusting ${action.target}. State set to: ${action.state}.`;
+        } else if (action.functionType === 'WIPE_RAM') {
+            confirmationText = `[CRITICAL] EXECUTING PARANOIA PROTOCOL. SECURE WIPE INITIATED.`;
         } else {
             confirmationText = `System command [${action.functionType}] on [${action.target}] dispatched successfully.`;
         }
@@ -221,7 +314,7 @@ const App: React.FC = () => {
           text: confirmationText,
         };
         setMessages(prev => [...prev, systemMessage]);
-      }, 750); // Simulate execution delay
+      }, 750); 
     }
   }, [messages]);
 
@@ -242,32 +335,12 @@ const App: React.FC = () => {
     @keyframes fadeInPulse { 0% { opacity: 0; transform: scale(0.95); } 80% { opacity: 1; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
     @keyframes pulse-glow { 0%, 100% { opacity: 0.7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
     @keyframes rotate { from { transform: rotate3d(0, 0, 0, 0); } to { transform: rotate3d(1, 1, 0.5, 360deg); } }
-    @keyframes holographic-rotate {
-      0%   { transform: rotate3d(1, 1, 0, 0deg)   scale(1);    opacity: 0.9; }
-      20%  { transform: rotate3d(0.5, 1, 1, 90deg)  scale(1.02); opacity: 1; }
-      40%  { transform: rotate3d(1, 0.5, 0, 180deg) scale(0.98); opacity: 0.95; }
-      60%  { transform: rotate3d(1, 1, 0.5, 270deg) scale(1.01); opacity: 1; }
-      80%  { transform: rotate3d(0, 0.5, 1, 320deg) scale(0.99); opacity: 0.85; }
-      100% { transform: rotate3d(1, 1, 0, 360deg) scale(1);    opacity: 0.9; }
-    }
-    @keyframes holographic-flicker {
-      0%, 100% { opacity: 1; box-shadow: 0 0 15px rgba(0, 255, 255, 0.3) inset; }
-      20% { opacity: 0.95; }
-      22% { opacity: 1; }
-      40% { opacity: 0.8; box-shadow: 0 0 25px rgba(0, 255, 255, 0.6) inset; }
-      41% { opacity: 1; }
-      65% { opacity: 0.9; }
-      68% { opacity: 1; }
-      82% { opacity: 0.85; box-shadow: 0 0 18px rgba(0, 255, 255, 0.4) inset; }
-      84% { opacity: 1; }
-    }
     @keyframes animate-grid {
       0% { background-position: 0 0; opacity: 0.5; }
       50% { opacity: 0.7; }
       100% { background-position: -2rem -2rem; opacity: 0.5; }
     }
     @keyframes scanline { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-    @keyframes waveform-pulse { 0%, 100% { transform: scaleY(0.5); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
     @keyframes live-waveform { 0% { transform: scaleY(0.2); } 25% { transform: scaleY(1.0); } 50% { transform: scaleY(0.4); } 75% { transform: scaleY(0.8); } 100% { transform: scaleY(0.2); } }
     
     .animate-fadeIn { animation: fadeIn 0.5s ease-out forwards; }
@@ -300,6 +373,19 @@ const App: React.FC = () => {
     <>
       <style>{customStyles}</style>
       <div className={`h-screen w-screen flex flex-col bg-transparent text-white transition-all duration-500 overflow-hidden ${currentProtocol === Protocol.SILENT_NIGHT ? 'brightness-75' : ''}`}>
+        
+        {/* Full Screen Live Interface Overlay */}
+        {(voiceStatus === 'CONNECTING' || voiceStatus === 'LISTENING' || voiceStatus === 'SPEAKING') && (
+           <LiveInterface 
+              voiceStatus={voiceStatus}
+              jarvisTranscript={jarvisTranscript}
+              userTranscript={userTranscript}
+              onClose={handleToggleVoice}
+              onToggleMic={() => {}}
+           />
+        )}
+
+        {/* Standard Chat Interface */}
         <div className="absolute inset-0 bg-grid-pattern opacity-50"></div>
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-10">
@@ -307,24 +393,28 @@ const App: React.FC = () => {
         </div>
 
         <div className="relative flex-1 flex justify-center items-center p-4 gap-4">
-            <aside className="w-48 h-full hidden lg:flex flex-col space-y-4">
-              <SystemStatusPanel />
-              {/* HolographicDisplayPanel removed from sidebar, now central */}
-            </aside>
-            <main className={`h-full w-full max-w-5xl flex flex-col border bg-black/40 shadow-2xl transition-all duration-500 ${currentStyle.border} ${currentStyle.shadow}`}>
+            {!focusMode && (
+              <aside className="w-48 h-full hidden lg:flex flex-col space-y-4 animate-fadeInFromRight">
+                <SystemStatusPanel />
+                <SettingsPanel settings={jarvisSettings} />
+              </aside>
+            )}
+            
+            <main className={`h-full w-full ${focusMode ? 'max-w-6xl' : 'max-w-5xl'} flex flex-col border bg-black/40 shadow-2xl transition-all duration-500 ${currentStyle.border} ${currentStyle.shadow} relative z-10`}>
                 <header className={`relative text-center p-2 border-b flex justify-center items-center bg-black/50 ${currentStyle.border} ${currentStyle.text}`}>
-                    <h1 className="text-lg font-bold tracking-[0.5em] text-cyan-400/80">JARVIS // EXECUTIVE_CORE</h1>
+                    <h1 className="text-lg font-bold tracking-[0.5em] text-cyan-400/80">JARVIS // PRIME_v9.0</h1>
                 </header>
                 
-                {/* --- TOP SECTION: VISUALIZATION & VOICE --- */}
-                <HolographicCore 
-                  voiceStatus={voiceStatus}
-                  jarvisTranscript={jarvisTranscript}
-                  userTranscript={userTranscript}
-                />
+                {/* Standard Hologram (Only show if NOT in live mode for smooth transition, though overlay covers it) */}
+                {voiceStatus === 'OFF' && !focusMode && (
+                  <HolographicCore 
+                    voiceStatus={voiceStatus}
+                    jarvisTranscript={jarvisTranscript}
+                    userTranscript={userTranscript}
+                  />
+                )}
 
-                {/* --- BOTTOM SECTION: TEXT CHAT & COMMS --- */}
-                <ChatWindow messages={messages} isLoading={isLoading} protocol={currentProtocol} />
+                <ChatWindow messages={messages} isLoading={isLoading} protocol={currentProtocol} uiAction={lastUiAction} />
                 <InputBar
                   onSendMessage={handleSendMessage}
                   isLoading={isLoading}
@@ -335,14 +425,16 @@ const App: React.FC = () => {
                   jarvisTranscript={jarvisTranscript}
                 />
             </main>
-            <aside className="w-48 h-full hidden lg:flex flex-col space-y-4">
-              <ResourceMetersPanel />
-              <StockTickerPanel />
-              <WorldClockPanel />
-            </aside>
+
+            {!focusMode && (
+              <aside className="w-48 h-full hidden lg:flex flex-col space-y-4 animate-fadeInFromRight">
+                <ResourceMetersPanel />
+                <SecurityPanel />
+                <WorldClockPanel />
+              </aside>
+            )}
         </div>
 
-        {/* Debug / Developer Panel Overlay */}
         {showDebug && (
             <DebugPanel 
                 onClose={() => setShowDebug(false)} 
@@ -351,7 +443,6 @@ const App: React.FC = () => {
             />
         )}
         
-        {/* Invisible trigger for mouse users (Bottom Right Corner) */}
         <div 
             className="fixed bottom-0 right-0 w-10 h-10 z-40 cursor-cell" 
             title="Developer Override"

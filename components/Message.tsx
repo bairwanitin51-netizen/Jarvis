@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Message, MessageSender, Protocol, SystemInfo, Source, RenderModel, Simulation, Widget, FileOperation } from '../types';
+import { Message, MessageSender, Protocol, SystemInfo, Source, RenderModel, Simulation, Widget, FileOperation, HighlightAction } from '../types';
 import { marked } from 'marked';
 
 interface MessageProps {
@@ -283,8 +283,28 @@ export const ChatMessage: React.FC<MessageProps> = ({ message, protocol }) => {
           }
       });
 
-      const cleanedText = cleanLines.join('\n');
-      const parsedHtml = marked.parse(cleanedText);
+      let processedText = cleanLines.join('\n');
+
+      // HIGHLIGHTER LOGIC
+      if (message.highlightAction) {
+          const { target, color } = message.highlightAction;
+          const colorMap: { [key: string]: string } = {
+              'YELLOW': 'bg-yellow-500/30 text-yellow-200 border-yellow-500/50 shadow-[0_0_10px_rgba(250,204,21,0.5)]',
+              'RED': 'bg-red-500/30 text-red-200 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.5)]',
+              'GREEN': 'bg-green-500/30 text-green-200 border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.5)]',
+              'BLUE': 'bg-blue-500/30 text-blue-200 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.5)]'
+          };
+          const styleClass = colorMap[color.toUpperCase()] || colorMap['YELLOW'];
+          
+          // Simple string replacement for highlighting - doing it pre-markdown might break links, 
+          // but for simple text highlighting it works.
+          // Using a specialized token for replacement to survive markdown parsing if possible, 
+          // or just replacing text content.
+          const highlightSpan = `<span class="${styleClass} px-1 rounded border animate-pulse font-bold">${target}</span>`;
+          processedText = processedText.replace(target, highlightSpan);
+      }
+
+      const parsedHtml = marked.parse(processedText);
       
       textContent = isJarvis 
         ? <div className="prose prose-invert prose-p:my-2 prose-p:text-cyan-100" dangerouslySetInnerHTML={{ __html: parsedHtml as string }} /> 

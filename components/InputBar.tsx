@@ -1,8 +1,10 @@
 
 import React, { useState, useRef } from 'react';
-import { SendIcon } from './icons/SendIcon';
+import { PlusIcon } from './icons/PlusIcon';
 import { MicIcon } from './icons/MicIcon';
-import { PaperClipIcon } from './icons/PaperClipIcon';
+import { GeminiSparkleIcon } from './icons/GeminiSparkleIcon';
+import { SettingsSlidersIcon } from './icons/SettingsSlidersIcon';
+import { SendIcon } from './icons/SendIcon';
 import { Protocol } from '../types';
 import type { VoiceStatus } from '../services/jarvisService';
 
@@ -19,11 +21,7 @@ interface InputBarProps {
 export const InputBar: React.FC<InputBarProps> = ({
   onSendMessage,
   isLoading,
-  protocol,
-  voiceStatus,
   onToggleVoice,
-  userTranscript,
-  jarvisTranscript
 }) => {
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<{ data: string; mimeType: string; previewUrl: string } | null>(null);
@@ -35,7 +33,6 @@ export const InputBar: React.FC<InputBarProps> = ({
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
-        // Remove data URL prefix for API usage
         const base64Data = base64String.split(',')[1];
         setAttachment({
           data: base64Data,
@@ -45,11 +42,6 @@ export const InputBar: React.FC<InputBarProps> = ({
       };
       reader.readAsDataURL(file);
     }
-  };
-
-  const handleRemoveAttachment = () => {
-    setAttachment(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -63,101 +55,110 @@ export const InputBar: React.FC<InputBarProps> = ({
     }
   };
 
-  const isVoiceActive = voiceStatus === 'LISTENING' || voiceStatus === 'SPEAKING' || voiceStatus === 'CONNECTING';
-
-  const protocolStyles = {
-    [Protocol.NORMAL]: 'border-cyan-500/30 text-cyan-300',
-    [Protocol.VERONICA]: 'border-red-500/50 text-red-300',
-    [Protocol.HOUSE_PARTY]: 'border-yellow-500/50 text-yellow-300',
-    [Protocol.CLEAN_SLATE]: 'border-cyan-500/30 text-cyan-300',
-    [Protocol.SILENT_NIGHT]: 'border-gray-600/50 text-gray-400',
-  };
-
-  const buttonStyles = {
-    [Protocol.NORMAL]: 'bg-cyan-600/50 hover:bg-cyan-500/80 text-cyan-200',
-    [Protocol.VERONICA]: 'bg-red-600/50 hover:bg-red-500/80 text-red-200',
-    [Protocol.HOUSE_PARTY]: 'bg-yellow-600/50 hover:bg-yellow-500/80 text-yellow-200',
-    [Protocol.CLEAN_SLATE]: 'bg-cyan-600/50 hover:bg-cyan-500/80 text-cyan-200',
-    [Protocol.SILENT_NIGHT]: 'bg-gray-600/50 hover:bg-gray-500/80 text-gray-200',
-  };
-  
-  const currentBorderStyle = protocolStyles[protocol].split(' ')[0];
-  const currentTextColor = protocolStyles[protocol].split(' ')[1];
-
   return (
-    <div className={`p-4 border-t ${currentBorderStyle} transition-all duration-300 relative bg-black/20 backdrop-blur-sm`}>
-       {attachment && (
-        <div className="absolute bottom-full left-4 mb-2 p-2 bg-black/80 border border-cyan-500/30 rounded-md animate-fadeIn">
-            <div className="relative group">
-                <img src={attachment.previewUrl} alt="Attachment" className="h-20 w-auto rounded object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+    <div className="p-4 pb-8 w-full flex justify-center z-40 relative">
+      {/* Floating Input Container */}
+      <div className="w-full max-w-[800px] flex flex-col items-center gap-4">
+          
+          {/* Attachment Preview (Floating above input) */}
+          {attachment && (
+            <div className="relative group animate-fadeIn">
+                <img src={attachment.previewUrl} alt="Attachment" className="h-24 w-auto rounded-xl border border-gray-700 object-cover shadow-lg" />
                 <button 
-                    onClick={handleRemoveAttachment}
-                    className="absolute -top-2 -right-2 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                    onClick={() => {
+                        setAttachment(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="absolute -top-2 -right-2 bg-gray-800 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 border border-gray-600"
                 >
                     ×
                 </button>
             </div>
-        </div>
-      )}
+          )}
 
-      <div className="flex items-center space-x-4 relative">
-        <div className={`absolute -left-px -top-px w-3 h-3 border-l-2 border-t-2 ${currentBorderStyle}`}></div>
-        <div className={`absolute -right-px -top-px w-3 h-3 border-r-2 border-t-2 ${currentBorderStyle}`}></div>
-        <div className={`absolute -left-px -bottom-px w-3 h-3 border-l-2 border-b-2 ${currentBorderStyle}`}></div>
-        <div className={`absolute -right-px -bottom-px w-3 h-3 border-r-2 border-b-2 ${currentBorderStyle}`}></div>
-        
-        <input 
-            type="file" 
-            ref={fileInputRef}
-            className="hidden"
-            accept="image/*"
-            onChange={handleFileSelect}
-        />
-        
-        <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading || isVoiceActive}
-            className={`p-3 rounded-full transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${buttonStyles[protocol]}`}
-            title="Attach Image"
-        >
-            <PaperClipIcon className="w-6 h-6" />
-        </button>
-
-        <div className="relative w-full h-[52px]">
-           <form onSubmit={handleSubmit} className="w-full h-full">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={attachment ? "Enter prompt to edit this image..." : "Awaiting input, Sir..."}
-              disabled={isLoading || isVoiceActive}
-              className={`w-full h-full p-3 bg-transparent placeholder-gray-500 focus:outline-none transition-opacity duration-300 ${currentTextColor} ${isVoiceActive ? 'opacity-50 cursor-not-allowed' : 'opacity-100'}`}
-              style={{ textShadow: '0 0 5px currentColor' }}
+          {/* The Main Pill Bar */}
+          <div className="w-full bg-[#1e1f20] rounded-full flex items-center p-2 pl-3 shadow-2xl border border-gray-800/50 focus-within:border-gray-600 transition-all duration-300">
+            <input 
+                type="file" 
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileSelect}
             />
-          </form>
-        </div>
-        
-        <button
-          type="button"
-          onClick={onToggleVoice}
-          disabled={isLoading && !isVoiceActive}
-          className={`p-3 rounded-full transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${
-            isVoiceActive 
-            ? 'bg-red-600/70 hover:bg-red-500/90 text-red-100 animate-pulse-glow shadow-[0_0_15px_red]' 
-            : buttonStyles[protocol]
-          }`}
-        >
-          <MicIcon className="w-6 h-6" />
-        </button>
-        <button
-          type="submit"
-          onClick={handleSubmit}
-          disabled={isLoading || isVoiceActive}
-          className={`p-3 rounded-full transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${buttonStyles[protocol]}`}
-        >
-          <SendIcon className="w-6 h-6" />
-        </button>
+            
+            {/* LEFT CONTROLS */}
+            <div className="flex items-center gap-2 pr-2">
+                {/* Plus Icon */}
+                <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded-full transition-colors"
+                >
+                    <PlusIcon className="w-5 h-5" />
+                </button>
+                
+                {/* Settings Icon */}
+                {/* Hidden on very small screens if needed, but requested in prompt */}
+                <button
+                    type="button"
+                    className="p-2 text-gray-400 hover:text-gray-200 hover:bg-white/5 rounded-full transition-colors"
+                >
+                    <SettingsSlidersIcon className="w-5 h-5" />
+                </button>
+            </div>
+
+            {/* INPUT FIELD */}
+            <form onSubmit={handleSubmit} className="flex-1">
+                <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={attachment ? "Add a caption..." : "Ask J.A.R.V.I.S."}
+                disabled={isLoading}
+                className="w-full bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none text-[16px] px-2 font-sans"
+                />
+            </form>
+
+            {/* RIGHT CONTROLS */}
+            <div className="flex items-center gap-1 pl-2">
+                 {/* Thinking Chip */}
+                 {isLoading && (
+                    <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-800 rounded-full animate-fadeIn mr-1">
+                         <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse" />
+                         <span className="text-xs text-gray-300 font-medium">Thinking</span>
+                    </div>
+                 )}
+
+                 {/* Send Button (Visible when typing) OR Mic/Sparkle (Visible when empty) */}
+                 {input.trim() || attachment ? (
+                     <button 
+                        onClick={handleSubmit}
+                        className="p-2 bg-cyan-600 rounded-full text-white shadow-lg hover:bg-cyan-500 transition-all animate-fadeIn mx-1"
+                     >
+                         <SendIcon className="w-5 h-5" />
+                     </button>
+                 ) : (
+                     <>
+                        {/* Mic Icon */}
+                        <button
+                            className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+                        >
+                            <MicIcon className="w-6 h-6" />
+                        </button>
+
+                        {/* Gemini Sparkle - The Live Trigger */}
+                        <button
+                            onClick={onToggleVoice}
+                            className="p-2 rounded-full transition-all duration-300 hover:bg-gray-700/50 group relative"
+                            title="Start Live Session"
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full opacity-20 group-hover:opacity-30 blur-md transition-opacity"></div>
+                            <GeminiSparkleIcon className="w-8 h-8 relative z-10" />
+                        </button>
+                     </>
+                 )}
+            </div>
+         </div>
       </div>
     </div>
   );

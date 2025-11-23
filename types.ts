@@ -48,6 +48,43 @@ export interface FileOperation {
   status: 'CREATING' | 'UPLOADED';
 }
 
+export interface JarvisSettings {
+  sarcasmLevel: number; // 0-100
+  voiceSpeed: number; // 0.5 - 2.0
+  vpnStatus: 'ACTIVE' | 'INACTIVE';
+  theme: 'CYBER' | 'DARK' | 'LIGHT';
+}
+
+export interface SettingsUpdate {
+  key: string;
+  value: string;
+}
+
+// --- M.U.I. Actions ---
+export interface UiAction {
+  type: 'SCROLL_UP' | 'SCROLL_DOWN' | 'SCROLL_TO_TOP' | 'SCROLL_TO_BOTTOM' | 'SCROLL_TO_TIMESTAMP' | 'LOCK' | 'UNLOCK';
+  target?: string;
+  amount?: string; // e.g., "50%"
+}
+
+export interface ClipboardAction {
+  type: 'COPY' | 'BATCH_COPY';
+  content?: string;
+  targetType?: string; // 'LINKS', 'CODE', etc.
+}
+
+export interface HighlightAction {
+  target: string;
+  color: string; // 'YELLOW', 'RED', 'GREEN', 'BLUE'
+  style?: string;
+}
+
+export interface ThemeAction {
+  theme: string; // 'OLED_BLACK', 'CYBERNETIC', etc.
+  mode?: 'FOCUS' | 'NORMAL';
+}
+// -----------------------
+
 export interface Message {
   id: string;
   sender: MessageSender;
@@ -61,6 +98,15 @@ export interface Message {
   simulation?: Simulation;
   widget?: Widget;
   fileOperation?: FileOperation;
+  settingsUpdate?: SettingsUpdate;
+  
+  // M.U.I. Fields
+  uiAction?: UiAction;
+  clipboardAction?: ClipboardAction;
+  highlightAction?: HighlightAction;
+  themeAction?: ThemeAction;
+  uiElementAction?: string; // e.g., 'HIDE_ALL_EXCEPT_TEXT'
+
   mode?: string;
   visualContext?: string;
 }
