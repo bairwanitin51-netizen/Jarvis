@@ -109,6 +109,7 @@ export interface Message {
 
   mode?: string;
   visualContext?: string;
+  agiPlan?: AgiPlan;
 }
 
 export enum Protocol {
@@ -117,9 +118,16 @@ export enum Protocol {
   VERONICA = 'VERONICA',
   HOUSE_PARTY = 'HOUSE_PARTY',
   SILENT_NIGHT = 'SILENT_NIGHT',
+  AGI_BROWSER = 'AGI_BROWSER',
 }
 
 export enum AppMode {
   TEXT = 'TEXT',
   VOICE = 'VOICE',
+}
+
+export interface AgiPlan {
+  steps: string[];
+  currentStepIndex: number;
+  status: 'PLANNING' | 'EXECUTING' | 'COMPLETED' | 'FAILED';
 }
